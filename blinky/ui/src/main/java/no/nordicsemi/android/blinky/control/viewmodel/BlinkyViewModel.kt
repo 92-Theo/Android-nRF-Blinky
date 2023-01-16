@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import no.nordicsemi.android.blinky.control.repository.BlinkyRepository
+import no.nordicsemi.android.blinky.spec.Blinky
 import no.nordicsemi.android.common.logger.NordicLogger
 import javax.inject.Inject
 import javax.inject.Named
@@ -37,6 +38,12 @@ class BlinkyViewModel @Inject constructor(
     /** The button state. */
     val buttonState = repository.loggedButtonState
         .stateIn(viewModelScope, SharingStarted.Lazily, false)
+
+    val mac = repository.mac
+        // .stateIn(viewModelScope, SharingStarted.Lazily, "unknown")
+
+    val deviceType = repository.loggedDeviceType
+        .stateIn(viewModelScope, SharingStarted.Lazily, Blinky.DeviceType.BLINKY)
 
     init {
         // In this sample we want to connect to the device as soon as the view model is created.

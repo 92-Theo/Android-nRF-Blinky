@@ -60,6 +60,15 @@ class BlinkyRepository @Inject constructor(
             }
         }
 
+    val loggedDeviceType: Flow<Blinky.DeviceType>
+        get() = blinky.deviceType.onEach {
+            // The same applies here.
+            when(it) {
+                Blinky.DeviceType.BLINKY -> Timber.log(LogContract.Log.Level.APPLICATION, "Device type blinky")
+                Blinky.DeviceType.KEYPLUS -> Timber.log(LogContract.Log.Level.APPLICATION, "Device type keyplu")
+            }
+        }
+
     override fun release() {
         Timber.uproot(tree)
         blinky.release()

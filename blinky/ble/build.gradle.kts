@@ -18,4 +18,6 @@ dependencies {
     implementation(libs.timber)
     // Coroutines
     implementation(libs.kotlinx.coroutines.core)
+
+    implementation("org.bouncycastle:bcprov-jdk15on:1.70")
 }

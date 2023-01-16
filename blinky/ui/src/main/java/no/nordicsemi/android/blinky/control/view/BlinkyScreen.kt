@@ -9,6 +9,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,18 +61,30 @@ internal fun BlinkyScreen(
                     }
                 }
                 Blinky.State.READY -> {
+                    val deviceType by viewModel.deviceType.collectAsStateWithLifecycle()
+                    val mac by viewModel.mac.collectAsStateWithLifecycle()
                     val ledState by viewModel.ledState.collectAsStateWithLifecycle()
                     val buttonState by viewModel.buttonState.collectAsStateWithLifecycle()
 
-                    BlinkyControlView(
-                        ledState = ledState,
-                        buttonState = buttonState,
-                        onStateChanged = { viewModel.turnLed(it) },
-                        modifier = Modifier
-                            .widthIn(max = 460.dp)
-                            .verticalScroll(rememberScrollState())
-                            .padding(16.dp)
-                    )
+                    if (deviceType == Blinky.DeviceType.BLINKY){
+                        BlinkyControlView(
+                            ledState = ledState,
+                            buttonState = buttonState,
+                            onStateChanged = { viewModel.turnLed(it) },
+                            modifier = Modifier
+                                .widthIn(max = 460.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(16.dp)
+                        )
+                    } else {
+                        KeyPlusControlView(
+                            mac = mac,
+                            modifier = Modifier
+                                .widthIn(max = 460.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(16.dp)
+                        )
+                    }
                 }
                 Blinky.State.NOT_AVAILABLE -> {
                     DeviceDisconnectedView(

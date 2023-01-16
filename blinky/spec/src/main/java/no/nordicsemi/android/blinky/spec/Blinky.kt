@@ -10,6 +10,20 @@ interface Blinky {
         NOT_AVAILABLE
     }
 
+    enum class DeviceType{
+        BLINKY,
+        KEYPLUS,
+    }
+
+    //    enum class State{
+//        NONE,           // 기본 상태
+//        CONNECTING,     // 연결 중
+//        GATT_GETTING,   // GATT 가져오는 중
+//        LOGGIN_IN,      // 로그인 중
+//        LOGGED_IN,      // 로그인 완료
+//        DISCONNECTED,   // 미연결
+//    }
+
     /**
      * Connects to the device.
      */
@@ -41,4 +55,10 @@ interface Blinky {
      * @param state the new state of the LED.
      */
     suspend fun turnLed(state: Boolean)
+
+    val mac: StateFlow<String>
+
+    val deviceType: StateFlow<DeviceType>
+
+    val rssi: StateFlow<Int>
 }

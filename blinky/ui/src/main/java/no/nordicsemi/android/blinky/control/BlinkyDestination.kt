@@ -2,7 +2,9 @@ package no.nordicsemi.android.blinky.control
 
 import android.bluetooth.BluetoothDevice
 import android.os.Parcelable
+import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.parcelize.Parcelize
 import no.nordicsemi.android.blinky.control.view.BlinkyScreen
 import no.nordicsemi.android.common.navigation.createDestination

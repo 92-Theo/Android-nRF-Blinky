@@ -8,6 +8,15 @@ class BlinkySpec {
         val BLINKY_SERVICE_UUID: UUID = UUID.fromString("00001523-1212-efde-1523-785feabcd123")
         val BLINKY_BUTTON_CHARACTERISTIC_UUID: UUID = UUID.fromString("00001524-1212-efde-1523-785feabcd123")
         val BLINKY_LED_CHARACTERISTIC_UUID: UUID = UUID.fromString("00001525-1212-efde-1523-785feabcd123")
-    }
 
+        // val KEYPLUS_ADVERTISING_UUID: UUID = UUID.fromString("803fb101-81e3-40d4-a4b7-e5984fe812f4")
+        val KEYPLUS_SERVICE_UUID: UUID = UUID.fromString("803fb101-81e3-40d4-a4b7-e5984fe812f4")
+        val KEYPLUS_TX_CHARACTERISTIC_UUID: UUID = UUID.fromString("803fb103-81e3-40d4-a4b7-e5984fe812f4") // read
+        val KEYPLUS_RX_CHARACTERISTIC_UUID: UUID = UUID.fromString("803fb102-81e3-40d4-a4b7-e5984fe812f4") // write
+        val KEYPLUS_MAC_CHARACTERISTIC_UUID: UUID = UUID.fromString("803fb104-81e3-40d4-a4b7-e5984fe812f4") // mac
+
+
+        val KEYPLUS_PRIVATE_KEY: ByteArray = "keypleisgood1234".toByteArray(Charsets.UTF_8)
+        val KEYPLUS_NONCE: ByteArray = "keyple".toByteArray(Charsets.UTF_8)
+    }
 }
