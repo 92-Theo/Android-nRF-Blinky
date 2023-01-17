@@ -12,7 +12,10 @@ import no.nordicsemi.android.common.theme.NordicTheme
 @Composable
 internal fun KeyPlusControlView(
     mac: String,
-    // onStateChanged: (Boolean) -> Unit,
+    version: String,
+    nonce: String,
+    loginState: String,
+    onLoginPressed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -23,6 +26,22 @@ internal fun KeyPlusControlView(
             text = "MAC",
             value = mac,
         )
+        BaseItemView(
+            text = "버전",
+            value = version,
+        )
+        BaseItemView(
+            text = "nonce2",
+            value = nonce,
+        )
+        BaseItemView(
+            text = "로그인 상태",
+            value = loginState,
+        )
+        BaseItemView(
+            text = "로그인 시도",
+            onClick = onLoginPressed,
+        )
     }
 }
 
@@ -32,7 +51,11 @@ private fun KeyPlusControlViewPreview() {
     NordicTheme {
         KeyPlusControlView(
             mac = "10101010",
+            version = "version",
+            loginState = "loginState",
+            nonce = "nonce",
             modifier = Modifier.padding(16.dp),
+            onLoginPressed = {},
         )
     }
 }

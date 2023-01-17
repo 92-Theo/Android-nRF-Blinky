@@ -80,5 +80,24 @@ enum class MsgId(val id: Byte) {
     companion object {
         fun of(id: Byte) = values().find { it.id == id }
             ?: UNKNOWN
+
+        fun login(password: ByteArray, force: Boolean, mode: DeviceMode) = byteArrayOf(SIGNIN_V2.id)
+            .plus(if (force) 0x01 else 0x00)
+            .plus(mode.mode)
+            .plus(password)
+
+        fun getVersion() = byteArrayOf(VER_GET.id)
+
+        fun getSettings() = byteArrayOf(SETTINGS3_GET.id)
     }
+}
+
+enum class DeviceMode(val mode: Byte) {
+    UNKNOWN(0xFF.toByte()),
+
+    MANUAL(0x00),
+    AUTO(0x01),
+    SMARTKEY(0x02),
+    SAFETY(0x03),
+    AUTO_UWB(0x04),
 }

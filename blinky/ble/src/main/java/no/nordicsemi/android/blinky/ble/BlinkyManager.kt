@@ -9,6 +9,10 @@ import androidx.annotation.Nullable
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import no.nordicsemi.android.ble.BleManager
+import no.nordicsemi.android.ble.WriteRequest
+import no.nordicsemi.android.ble.callback.DataReceivedCallback
+import no.nordicsemi.android.ble.callback.DataSentCallback
+import no.nordicsemi.android.ble.data.Data
 import no.nordicsemi.android.ble.ktx.asValidResponseFlow
 import no.nordicsemi.android.ble.ktx.getCharacteristic
 import no.nordicsemi.android.ble.ktx.state.ConnectionState
@@ -17,9 +21,12 @@ import no.nordicsemi.android.ble.ktx.suspend
 import no.nordicsemi.android.ble.utils.ParserUtils
 import no.nordicsemi.android.blinky.ble.data.*
 import no.nordicsemi.android.blinky.ble.utils.AesCcmUtil
+import no.nordicsemi.android.blinky.ble.utils.StringUtil
 import no.nordicsemi.android.blinky.spec.Blinky
 import no.nordicsemi.android.blinky.spec.BlinkySpec
 import timber.log.Timber
+import java.util.Timer
+import java.util.TimerTask
 import kotlin.random.Random
 
 class BlinkyManager(
@@ -55,6 +62,17 @@ private class BlinkyManagerImpl(
     private val _rssi = MutableStateFlow(0)
     override val rssi = _rssi.asStateFlow();
 
+    private val _loggedInState = MutableStateFlow("unknown")
+    override val loggedInState = _loggedInState.asStateFlow()
+
+    private val _version = MutableStateFlow("unknown")
+    override val version = _version.asStateFlow()
+
+    private val _loggedInNonce = MutableStateFlow("unknown")
+    override val loggedInNonce = _loggedInNonce.asStateFlow()
+
+    private var timerTask: Timer? = null
+
     override val state = stateAsFlow()
         .map {
             when (it) {
@@ -62,7 +80,14 @@ private class BlinkyManagerImpl(
                 is ConnectionState.Initializing -> Blinky.State.LOADING
                 is ConnectionState.Ready -> Blinky.State.READY
                 is ConnectionState.Disconnecting,
-                is ConnectionState.Disconnected -> Blinky.State.NOT_AVAILABLE
+                is ConnectionState.Disconnected -> {
+                    _loggedInState.tryEmit("unknown")
+                    _loggedInNonce.tryEmit("")
+                    _version.tryEmit("unknown")
+                    _mac.tryEmit("unknown")
+                    timerTask?.cancel()
+                    Blinky.State.NOT_AVAILABLE
+                }
             }
         }
         .stateIn(scope, SharingStarted.Lazily, Blinky.State.NOT_AVAILABLE)
@@ -76,6 +101,7 @@ private class BlinkyManagerImpl(
     override fun release() {
         // Cancel all coroutines.
         scope.cancel()
+        timerTask?.cancel()
 
         val wasConnected = isReady
         // If the device wasn't connected, it means that ConnectRequest was still pending.
@@ -98,6 +124,21 @@ private class BlinkyManagerImpl(
 
         // Update the state flow with the new value.
         _ledState.value = state
+    }
+
+    override suspend fun login() {
+        // Write the value to the characteristic.
+        write(
+            MsgId.login(
+                password = "000000".toByteArray(),
+                force = false,
+                mode = DeviceMode.MANUAL
+            ),
+            nonce2 = StringUtil.toByteArray(_loggedInNonce.value)
+        ).suspend()
+
+        // Update the state flow with the new value.
+        // _ledState.value = state
     }
 
     override fun log(priority: Int, message: String) {
@@ -144,7 +185,17 @@ private class BlinkyManagerImpl(
         object : TxCallback() {
             override fun onTxChanged(device: BluetoothDevice, data: ByteArray) {
                 val dataString = ParserUtils.parse(data)
-                Log.d("BlinkyManager", "onTxChanged:${dataString}")
+                Log.d("BlinkyManager", "txCallback.onTxChanged:${dataString}")
+                received(data)
+            }
+        }
+    }
+
+    private val tx2Callback by lazy {
+        object : Tx2Callback() {
+            override fun onTxChanged(device: BluetoothDevice, data: ByteArray) {
+                val dataString = ParserUtils.parse(data)
+                Log.d("BlinkyManager", "tx2Callback.onTxChanged:${dataString}")
                 received(data)
             }
         }
@@ -224,6 +275,12 @@ private class BlinkyManagerImpl(
             }
 
             Blinky.DeviceType.KEYPLUS -> {
+                setNotificationCallback(txCharacteristic)
+                    .with(tx2Callback)
+
+                setNotificationCallback(macCharacteristic)
+                    .with(macCallback)
+
                 enableNotifications(txCharacteristic)
                     .enqueue()
 
@@ -238,7 +295,34 @@ private class BlinkyManagerImpl(
                     .with(macCallback)
                     .enqueue()
 
-                // writeCharacteristic(rxCharacteristic, )
+                timerTask?.cancel()
+                timerTask = Timer(true)
+                timerTask?.schedule(
+                    object :TimerTask() {
+                        override fun run() {
+                            write(
+                                data = MsgId.login(
+                                    password = "000000".toByteArray(),
+                                    force = false,
+                                    mode = DeviceMode.MANUAL
+                                ),
+                                nonce2 = null
+                            ).enqueue()
+                        }
+                    },
+                    1000,
+                    1000
+                )
+
+
+                write(
+                    data = MsgId.login(
+                        password = "000000".toByteArray(),
+                        force = false,
+                        mode = DeviceMode.MANUAL
+                    ),
+                    nonce2 = null
+                )
             }
         }
     }
@@ -254,33 +338,37 @@ private class BlinkyManagerImpl(
 
 
     fun write(data: ByteArray,
-              nonce2: ByteArray?){
+              nonce2: ByteArray?) : WriteRequest{
         val dataWithDummy = if (data.size < 16) {
             data.plus(Random.nextBytes(16 - data.size))
         }else{
             data
         }
 
-        var nonce = if (nonce2 == null){
+        Log.d("BlinkyManager", "write:dataWithDummy=${ParserUtils.parse(dataWithDummy)}")
+
+        var nonce = if (nonce2 == null || nonce2.size != 6){
             BlinkySpec.KEYPLUS_NONCE.plus(Random.nextBytes(6))
         }else{
+            Log.d("BlinkyManager", "write:nonce2=${ParserUtils.parse(nonce2)}")
             BlinkySpec.KEYPLUS_NONCE.plus(nonce2)
         }
 
         val encrypted = AesCcmUtil.encrypt(dataWithDummy, BlinkySpec.KEYPLUS_PRIVATE_KEY, nonce)
 
+        Log.d("BlinkyManager", "write:encrypted=${ParserUtils.parse(encrypted)}")
 
         val writeData = byteArrayOf(MsgType.BLE.type)
             .plus(encrypted.copyOfRange(dataWithDummy.size, dataWithDummy.size + 10))
             .plus(nonce.copyOfRange(6, 12))
             .plus(encrypted.copyOfRange(0, dataWithDummy.size))
 
-        Log.d("BlinkyManager", "write:${ParserUtils.parse(writeData)}")
-        writeCharacteristic(
+        Log.d("BlinkyManager", "write:writeData=${ParserUtils.parse(writeData)}")
+        return writeCharacteristic(
             rxCharacteristic,
             writeData,
-            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
-            .enqueue()
+            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        )
     }
 
     fun received(data: ByteArray) {
@@ -293,8 +381,7 @@ private class BlinkyManagerImpl(
             Log.d("BlinkyManager", "received:data.size=${data.size},invalid")
             return
         }
-        val type = MsgType.of(data[0])
-        when(type){
+        when(val type = MsgType.of(data[0])){
             MsgType.UNKNOWN -> {
                 Log.d("BlinkyManager", "received:type=${type},invalid")
             }
@@ -312,13 +399,18 @@ private class BlinkyManagerImpl(
     }
 
     private fun parseBle(data: ByteArray){
+        Log.d("BlinkyManager", "parseBle:data=${ParserUtils.parse(data)},debug")
         // decrypt
         val plaintext: ByteArray
         try{
+            val src = data.copyOfRange(16, data.size).plus(data.copyOfRange(0, 10))
+            val key = BlinkySpec.KEYPLUS_PRIVATE_KEY
+            val nonce = BlinkySpec.KEYPLUS_NONCE.plus(data.copyOfRange(10, 16))
+            Log.d("BlinkyManager", "parseBle:src=${ParserUtils.parse(src)},key=${ParserUtils.parse(key)},nonce=${ParserUtils.parse(nonce)},debug")
             plaintext = AesCcmUtil.decrypt(
-                data.copyOfRange(16, data.size).plus(data.copyOfRange(0, 10)),
-                BlinkySpec.KEYPLUS_PRIVATE_KEY,
-                BlinkySpec.KEYPLUS_NONCE.plus(data.copyOfRange(10, 16))
+                src,
+                key,
+                nonce
             )
         }catch (e: Exception){
             Log.d("BlinkyManager", "parseBle:e=${e.message},exception")
@@ -334,19 +426,65 @@ private class BlinkyManagerImpl(
             return;
         }
 
-        val id = MsgId.of(plaintext[0])
-        when(id){
-            MsgId.SIGNIN_V2 -> {
-                val resCode = ResCode.of(plaintext[1])
-            }
-            MsgId.SETTINGS3_GET ->{
+        Log.d("BlinkyManager", "parseBle:plaintext=${ParserUtils.parse(plaintext)}")
 
+        when(val id = MsgId.of(plaintext[0])){
+            MsgId.SIGNIN_V2 -> {
+                when (val code = ResCode.of(plaintext[1])){
+                    ResCode.SUCCESS -> {
+                        _loggedInState.tryEmit("success")
+
+                        timerTask?.cancel()
+                        write(
+                            data = MsgId.getVersion(),
+                            nonce2 = null
+                        ).enqueue()
+//                        write(
+//                            data = MsgId.getSettings(),
+//                            nonce2 = null
+//                        )
+                    }
+                    ResCode.INVALID_NONCE -> {
+                        val n2 = StringUtil.toHexString(plaintext.copyOfRange(2, 8))
+                        _loggedInState.tryEmit("invalid nonce=${n2}")
+                        _loggedInNonce.tryEmit(n2)
+                        Log.d("BlinkyManager", "parseBle:id=${id},nonce2=${n2}")
+                        write(
+                            data = MsgId.login("000000".toByteArray(), false, DeviceMode.MANUAL),
+                            nonce2 = StringUtil.toByteArray(n2)
+                        ).enqueue()
+                    }
+                    ResCode.UNKNOWN -> {
+                        Log.d("BlinkyManager", "parseBle:id=${id},code=${plaintext[1]},unknown")
+                        _loggedInState.tryEmit("unknown code")
+                    }
+                    else -> {
+                        _loggedInState.tryEmit("fail,code=${code}")
+                        Log.d("BlinkyManager", "parseBle:id=${id},code=${code},invalid")
+                    }
+                }
             }
             MsgId.VER_GET -> {
-
+                val code = ResCode.of(plaintext[1])
+                if (code ==  ResCode.SUCCESS){
+                    _version.tryEmit("fw=${plaintext[2]}.${plaintext[3]}.${plaintext[4]}${System.lineSeparator()}nhw=${plaintext[5]}.${plaintext[6]}.${plaintext[7]}")
+                }else{
+                    Log.d("BlinkyManager", "parseBle:id=${id},code=${code},invalid")
+                }
             }
             MsgId.NOTI_NONCE -> {
+                val n2 = StringUtil.toHexString(plaintext.copyOfRange(1, 7))
+                _loggedInState.tryEmit("invalid nonce=${n2}")
+                _loggedInNonce.tryEmit(n2)
 
+                Log.d("BlinkyManager", "parseBle:id=${id},nonce2=${n2}")
+                write(
+                    data = MsgId.login("000000".toByteArray(), false, DeviceMode.MANUAL),
+                    nonce2 = StringUtil.toByteArray(n2)
+                ).enqueue()
+            }
+            MsgId.UNKNOWN -> {
+                Log.d("BlinkyManager", "parseBle:id=${plaintext[0]},unknown")
             }
             else ->{
                 Log.d("BlinkyManager", "parseBle:id=${id},invalid")

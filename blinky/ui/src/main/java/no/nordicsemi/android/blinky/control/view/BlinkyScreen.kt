@@ -62,11 +62,10 @@ internal fun BlinkyScreen(
                 }
                 Blinky.State.READY -> {
                     val deviceType by viewModel.deviceType.collectAsStateWithLifecycle()
-                    val mac by viewModel.mac.collectAsStateWithLifecycle()
-                    val ledState by viewModel.ledState.collectAsStateWithLifecycle()
-                    val buttonState by viewModel.buttonState.collectAsStateWithLifecycle()
 
                     if (deviceType == Blinky.DeviceType.BLINKY){
+                        val ledState by viewModel.ledState.collectAsStateWithLifecycle()
+                        val buttonState by viewModel.buttonState.collectAsStateWithLifecycle()
                         BlinkyControlView(
                             ledState = ledState,
                             buttonState = buttonState,
@@ -77,8 +76,17 @@ internal fun BlinkyScreen(
                                 .padding(16.dp)
                         )
                     } else {
+                        val mac by viewModel.mac.collectAsStateWithLifecycle()
+                        val version by viewModel.version.collectAsStateWithLifecycle()
+                        val nonce by viewModel.nonce.collectAsStateWithLifecycle()
+                        val loginState by viewModel.loginState.collectAsStateWithLifecycle()
+
                         KeyPlusControlView(
                             mac = mac,
+                            version= version,
+                            nonce = nonce,
+                            loginState = loginState,
+                            onLoginPressed = { viewModel.login() },
                             modifier = Modifier
                                 .widthIn(max = 460.dp)
                                 .verticalScroll(rememberScrollState())

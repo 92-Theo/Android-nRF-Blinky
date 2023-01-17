@@ -39,11 +39,13 @@ class BlinkyViewModel @Inject constructor(
     val buttonState = repository.loggedButtonState
         .stateIn(viewModelScope, SharingStarted.Lazily, false)
 
-    val mac = repository.mac
-        // .stateIn(viewModelScope, SharingStarted.Lazily, "unknown")
-
     val deviceType = repository.loggedDeviceType
         .stateIn(viewModelScope, SharingStarted.Lazily, Blinky.DeviceType.BLINKY)
+
+    val mac = repository.mac
+    val version = repository.version
+    val loginState = repository.loggedInState
+    val nonce = repository.loggedInNonce
 
     init {
         // In this sample we want to connect to the device as soon as the view model is created.
@@ -73,6 +75,15 @@ class BlinkyViewModel @Inject constructor(
             // Just like above, when this method throws an exception, it will be caught by the
             // exception handler and ignored.
             repository.turnLed(on)
+        }
+    }
+
+    fun login() {
+        val exceptionHandler = CoroutineExceptionHandler { _, _ -> }
+        viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            // Just like above, when this method throws an exception, it will be caught by the
+            // exception handler and ignored.
+            repository.login()
         }
     }
 

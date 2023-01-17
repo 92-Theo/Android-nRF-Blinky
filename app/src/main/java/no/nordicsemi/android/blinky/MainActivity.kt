@@ -8,10 +8,10 @@ import no.nordicsemi.android.blinky.scanner.ScannerDestination
 import no.nordicsemi.android.common.navigation.NavigationView
 import no.nordicsemi.android.common.theme.NordicActivity
 import no.nordicsemi.android.common.theme.NordicTheme
+import java.util.*
 
 @AndroidEntryPoint
 class MainActivity: NordicActivity() {
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 

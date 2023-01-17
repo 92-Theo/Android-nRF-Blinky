@@ -1,5 +1,6 @@
 package no.nordicsemi.android.blinky.ble.utils
 
+import android.util.Log
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.security.Security
 import javax.crypto.Cipher
@@ -15,8 +16,8 @@ class AesCcmUtil {
             val secretKeySpec = SecretKeySpec(key, "AES")
             cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec, parameterSpec)
             var encrypted = ByteArray(cipher.getOutputSize(src.size))
-            cipher.update(src, 0, src.size, encrypted, 0)
-            cipher.doFinal(encrypted)
+            var res = cipher.update(src, 0, src.size, encrypted, 0)
+            cipher.doFinal(encrypted, res)
 
             return encrypted
 //        dst = encrypted.copyOfRange(0, src.size)
@@ -32,8 +33,9 @@ class AesCcmUtil {
             val secretKeySpec = SecretKeySpec(key, "AES")
             cipher.init(Cipher.DECRYPT_MODE, secretKeySpec, parameterSpec)
             var plaintext = ByteArray(cipher.getOutputSize(src.size))
-            cipher.update(src, 0, src.size, plaintext, 0)
-            cipher.doFinal(plaintext)
+            Log.d("AesCcmUtil", "decrypt:plaintext.size=${plaintext.size},debug")
+            val res = cipher.update(src, 0, src.size, plaintext, 0)
+            cipher.doFinal(plaintext, res)
 
             return plaintext
 //        dst = encrypted.copyOfRange(0, src.size)

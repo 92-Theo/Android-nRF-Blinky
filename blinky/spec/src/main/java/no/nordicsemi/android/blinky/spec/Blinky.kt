@@ -57,8 +57,11 @@ interface Blinky {
     suspend fun turnLed(state: Boolean)
 
     val mac: StateFlow<String>
-
     val deviceType: StateFlow<DeviceType>
-
     val rssi: StateFlow<Int>
+    val loggedInState: StateFlow<String>
+    val version: StateFlow<String>
+    val loggedInNonce: StateFlow<String>
+
+    suspend fun login()
 }
