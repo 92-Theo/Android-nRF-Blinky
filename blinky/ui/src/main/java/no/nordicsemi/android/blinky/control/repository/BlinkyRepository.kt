@@ -66,6 +66,7 @@ class BlinkyRepository @Inject constructor(
             when(it) {
                 Blinky.DeviceType.BLINKY -> Timber.log(LogContract.Log.Level.APPLICATION, "Device type blinky")
                 Blinky.DeviceType.KEYPLUS -> Timber.log(LogContract.Log.Level.APPLICATION, "Device type keyplu")
+                Blinky.DeviceType.NI -> Timber.log(LogContract.Log.Level.APPLICATION, "Device type ni")
             }
         }
 

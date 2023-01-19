@@ -92,6 +92,26 @@ enum class MsgId(val id: Byte) {
     }
 }
 
+enum class NiMsgId(val id: Byte) {
+    UNKNOWN(0xFF.toByte()),
+
+    ACCESSORY_CONFIGURATION_DATA(0x1),
+    ACCESSORY_UWB_DID_START(0x2),
+    ACCESSORY_UWB_DID_STOP(0x3),
+
+    INIT(0xA),
+    CONFIGURE_AND_START(0xB),
+    STOP(0xC);
+
+    companion object {
+        fun of(id: Byte) = values().find { it.id == id }
+            ?: UNKNOWN
+        fun init() = byteArrayOf(INIT.id)
+        fun configureAndStart() = byteArrayOf(CONFIGURE_AND_START.id)
+        fun stop() = byteArrayOf(STOP.id)
+    }
+}
+
 enum class DeviceMode(val mode: Byte) {
     UNKNOWN(0xFF.toByte()),
 

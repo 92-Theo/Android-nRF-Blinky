@@ -46,6 +46,7 @@ class BlinkyViewModel @Inject constructor(
     val version = repository.version
     val loginState = repository.loggedInState
     val nonce = repository.loggedInNonce
+    val dist = repository.dist
 
     init {
         // In this sample we want to connect to the device as soon as the view model is created.
@@ -84,6 +85,33 @@ class BlinkyViewModel @Inject constructor(
             // Just like above, when this method throws an exception, it will be caught by the
             // exception handler and ignored.
             repository.login()
+        }
+    }
+
+    fun initNi() {
+        val exceptionHandler = CoroutineExceptionHandler { _, _ -> }
+        viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            // Just like above, when this method throws an exception, it will be caught by the
+            // exception handler and ignored.
+            repository.initNi()
+        }
+    }
+
+    fun configureAndStartNi() {
+        val exceptionHandler = CoroutineExceptionHandler { _, _ -> }
+        viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            // Just like above, when this method throws an exception, it will be caught by the
+            // exception handler and ignored.
+            repository.configureAndStartNi()
+        }
+    }
+
+    fun stopNi() {
+        val exceptionHandler = CoroutineExceptionHandler { _, _ -> }
+        viewModelScope.launch(Dispatchers.IO + exceptionHandler) {
+            // Just like above, when this method throws an exception, it will be caught by the
+            // exception handler and ignored.
+            repository.stopNi()
         }
     }
 

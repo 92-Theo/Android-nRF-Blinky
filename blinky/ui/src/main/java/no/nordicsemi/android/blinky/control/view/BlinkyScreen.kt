@@ -63,35 +63,54 @@ internal fun BlinkyScreen(
                 Blinky.State.READY -> {
                     val deviceType by viewModel.deviceType.collectAsStateWithLifecycle()
 
-                    if (deviceType == Blinky.DeviceType.BLINKY){
-                        val ledState by viewModel.ledState.collectAsStateWithLifecycle()
-                        val buttonState by viewModel.buttonState.collectAsStateWithLifecycle()
-                        BlinkyControlView(
-                            ledState = ledState,
-                            buttonState = buttonState,
-                            onStateChanged = { viewModel.turnLed(it) },
-                            modifier = Modifier
-                                .widthIn(max = 460.dp)
-                                .verticalScroll(rememberScrollState())
-                                .padding(16.dp)
-                        )
-                    } else {
-                        val mac by viewModel.mac.collectAsStateWithLifecycle()
-                        val version by viewModel.version.collectAsStateWithLifecycle()
-                        val nonce by viewModel.nonce.collectAsStateWithLifecycle()
-                        val loginState by viewModel.loginState.collectAsStateWithLifecycle()
+                    when(deviceType){
+                        Blinky.DeviceType.BLINKY ->{
+                            val ledState by viewModel.ledState.collectAsStateWithLifecycle()
+                            val buttonState by viewModel.buttonState.collectAsStateWithLifecycle()
+                            BlinkyControlView(
+                                ledState = ledState,
+                                buttonState = buttonState,
+                                onStateChanged = { viewModel.turnLed(it) },
+                                modifier = Modifier
+                                    .widthIn(max = 460.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(16.dp)
+                            )
+                        }
+                        Blinky.DeviceType.KEYPLUS -> {
+                            val mac by viewModel.mac.collectAsStateWithLifecycle()
+                            val version by viewModel.version.collectAsStateWithLifecycle()
+                            val nonce by viewModel.nonce.collectAsStateWithLifecycle()
+                            val loginState by viewModel.loginState.collectAsStateWithLifecycle()
 
-                        KeyPlusControlView(
-                            mac = mac,
-                            version= version,
-                            nonce = nonce,
-                            loginState = loginState,
-                            onLoginPressed = { viewModel.login() },
-                            modifier = Modifier
-                                .widthIn(max = 460.dp)
-                                .verticalScroll(rememberScrollState())
-                                .padding(16.dp)
-                        )
+                            KeyPlusControlView(
+                                mac = mac,
+                                version = version,
+                                nonce = nonce,
+                                loginState = loginState,
+                                onLoginPressed = { viewModel.login() },
+                                modifier = Modifier
+                                    .widthIn(max = 460.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(16.dp)
+                            )
+                        }
+                        Blinky.DeviceType.NI -> {
+                            val loginState by viewModel.loginState.collectAsStateWithLifecycle()
+                            val dist by viewModel.dist.collectAsStateWithLifecycle()
+
+                            NIControlView(
+                                uwbState = loginState,
+                                dist = dist,
+                                onInit = { viewModel.initNi() },
+                                onConfigureAndStart = { viewModel.configureAndStartNi() },
+                                onStop = { viewModel.stopNi() },
+                                modifier = Modifier
+                                    .widthIn(max = 460.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(16.dp)
+                            )
+                        }
                     }
                 }
                 Blinky.State.NOT_AVAILABLE -> {

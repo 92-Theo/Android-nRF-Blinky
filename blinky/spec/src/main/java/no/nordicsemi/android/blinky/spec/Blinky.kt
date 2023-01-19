@@ -13,6 +13,7 @@ interface Blinky {
     enum class DeviceType{
         BLINKY,
         KEYPLUS,
+        NI,
     }
 
     //    enum class State{
@@ -62,6 +63,11 @@ interface Blinky {
     val loggedInState: StateFlow<String>
     val version: StateFlow<String>
     val loggedInNonce: StateFlow<String>
+    val dist: StateFlow<String>
 
     suspend fun login()
+    suspend fun initNi()
+    suspend fun configureAndStartNi()
+    suspend fun stopNi()
+
 }

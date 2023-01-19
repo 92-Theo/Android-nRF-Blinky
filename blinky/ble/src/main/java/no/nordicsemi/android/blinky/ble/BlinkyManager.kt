@@ -71,6 +71,9 @@ private class BlinkyManagerImpl(
     private val _loggedInNonce = MutableStateFlow("unknown")
     override val loggedInNonce = _loggedInNonce.asStateFlow()
 
+    private val _dist  = MutableStateFlow("unknown")
+    override val dist = _dist.asStateFlow()
+
     private var timerTask: Timer? = null
 
     override val state = stateAsFlow()
@@ -141,6 +144,24 @@ private class BlinkyManagerImpl(
         // _ledState.value = state
     }
 
+    override suspend fun initNi(){
+        write(
+            NiMsgId.init()
+        ).suspend()
+    }
+
+    override suspend fun configureAndStartNi(){
+        write(
+            NiMsgId.configureAndStart()
+        ).suspend()
+    }
+
+    override suspend fun stopNi(){
+        write(
+            NiMsgId.stop()
+        ).suspend()
+    }
+
     override fun log(priority: Int, message: String) {
         Timber.log(priority, message)
     }
@@ -202,6 +223,9 @@ private class BlinkyManagerImpl(
     }
 
     override fun isRequiredServiceSupported(gatt: BluetoothGatt): Boolean {
+
+
+
         // Get the LBS Service from the gatt object.
         gatt.getService(BlinkySpec.BLINKY_SERVICE_UUID)?.apply {
             // Get the LED characteristic.
@@ -244,6 +268,22 @@ private class BlinkyManagerImpl(
             return macCharacteristic != null && txCharacteristic != null && rxCharacteristic != null
         }
 
+        gatt.getService(BlinkySpec.UWB_SERVICE_UUID)?.apply {
+            txCharacteristic = getCharacteristic(
+                BlinkySpec.UWB_TX_CHARACTERISTIC_UUID,
+                (BluetoothGattCharacteristic.PROPERTY_NOTIFY)
+            )
+            rxCharacteristic = getCharacteristic(
+                BlinkySpec.UWB_RX_CHARACTERISTIC_UUID,
+                BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE
+            )
+
+            _deviceType.tryEmit(Blinky.DeviceType.NI)
+
+            // Return true if all required characteristics are supported.
+            return txCharacteristic != null && rxCharacteristic != null
+        }
+
         return false
     }
 
@@ -273,7 +313,6 @@ private class BlinkyManagerImpl(
                     .with(ledCallback)
                     .enqueue()
             }
-
             Blinky.DeviceType.KEYPLUS -> {
                 setNotificationCallback(txCharacteristic)
                     .with(tx2Callback)
@@ -324,6 +363,13 @@ private class BlinkyManagerImpl(
                     nonce2 = null
                 )
             }
+            Blinky.DeviceType.NI -> {
+                setNotificationCallback(txCharacteristic)
+                    .with(tx2Callback)
+
+                enableNotifications(txCharacteristic)
+                    .enqueue()
+            }
         }
     }
 
@@ -371,31 +417,52 @@ private class BlinkyManagerImpl(
         )
     }
 
+    fun write(data: ByteArray) : WriteRequest {
+        return writeCharacteristic(
+            rxCharacteristic,
+            data,
+            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        )
+    }
+
     fun received(data: ByteArray) {
         if (data.isEmpty()) {
             Log.d("BlinkyManager", "received:data.isEmpty")
             return
         }
 
-        if (data.size < 2){
-            Log.d("BlinkyManager", "received:data.size=${data.size},invalid")
-            return
-        }
-        when(val type = MsgType.of(data[0])){
-            MsgType.UNKNOWN -> {
-                Log.d("BlinkyManager", "received:type=${type},invalid")
+        when (deviceType.value)
+        {
+            Blinky.DeviceType.BLINKY -> {
+                Log.d("BlinkyManager", "received:not support DeviceType.BLINKY")
             }
-            MsgType.BLE -> {
-                if (data.size != 33){
-                    Log.d("BlinkyManager", "received:data.size=${data.size},invalid ble size")
-                    return;
+            Blinky.DeviceType.KEYPLUS -> {
+                if (data.size < 2){
+                    Log.d("BlinkyManager", "received:data.size=${data.size},invalid")
+                    return
                 }
-                parseBle(data.copyOfRange(1, data.size))
+                when(val type = MsgType.of(data[0])){
+                    MsgType.UNKNOWN -> {
+                        Log.d("BlinkyManager", "received:type=${type},invalid")
+                    }
+                    MsgType.BLE -> {
+                        if (data.size != 33){
+                            Log.d("BlinkyManager", "received:data.size=${data.size},invalid ble size")
+                            return;
+                        }
+                        parseBle(data.copyOfRange(1, data.size))
+                    }
+                    MsgType.UWB -> {
+                        parseUwb(data.copyOfRange(1, data.size))
+                    }
+                }
             }
-            MsgType.UWB -> {
-                parseUwb(data.copyOfRange(1, data.size))
+            Blinky.DeviceType.NI-> {
+                parseNi(data)
             }
         }
+
+
     }
 
     private fun parseBle(data: ByteArray){
@@ -488,6 +555,25 @@ private class BlinkyManagerImpl(
             }
             else ->{
                 Log.d("BlinkyManager", "parseBle:id=${id},invalid")
+            }
+        }
+    }
+
+    private fun parseNi(data: ByteArray){
+        Log.d("BlinkyManager", "parseNi:data=${ParserUtils.parse(data)}")
+
+        when(val id = NiMsgId.of(data[0])){
+            NiMsgId.ACCESSORY_CONFIGURATION_DATA -> {
+
+            }
+            NiMsgId.ACCESSORY_UWB_DID_START -> {
+
+            }
+            NiMsgId.STOP -> {
+
+            }
+            else ->{
+                Log.d("BlinkyManager", "parseNi:id=${id},not support")
             }
         }
     }
