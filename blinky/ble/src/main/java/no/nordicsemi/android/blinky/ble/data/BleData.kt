@@ -101,14 +101,48 @@ enum class NiMsgId(val id: Byte) {
 
     INIT(0xA),
     CONFIGURE_AND_START(0xB),
-    STOP(0xC);
+    STOP(0xC),
+
+    ANDROID_CONFIGURATION_DATA(0x11),
+    ANDROID_UWB_DID_START(0x12),
+    ANDROID_UWB_DID_STOP(0x13),
+
+    INIT_ANDROID(0x1A),
+    CONFIGURE_AND_START_ANDROID(0x1B),
+    STOP_ANDROID(0x1C);
 
     companion object {
         fun of(id: Byte) = values().find { it.id == id }
             ?: UNKNOWN
         fun init() = byteArrayOf(INIT.id)
-        fun configureAndStart() = byteArrayOf(CONFIGURE_AND_START.id)
+
+        fun configureAndStart(sessionId: ByteArray, preamble: Byte, channel: Byte, stsIV : ByteArray, address: ByteArray) = byteArrayOf(CONFIGURE_AND_START.id)
+            .plus(byteArrayOf(0x01, 0x00, 0x00, 0x00))
+            .plus(0x17)
+            .plus(byteArrayOf(0x4b, 0x52)) // fixed data
+            .plus(sessionId) // session id, 4byte
+            .plus(preamble) // preamble
+            .plus(channel) // channel
+            .plus(byteArrayOf(0x06, 0x00)) //num slots
+            .plus(byteArrayOf(0x10, 0x0e)) //slot duration
+            .plus(byteArrayOf(0xB4.toByte(), 0x00)) //block duration
+            .plus(0x03) // fixed data
+            .plus(stsIV)
+            .plus(address)
+
         fun stop() = byteArrayOf(STOP.id)
+
+        fun initAndroid() = byteArrayOf(INIT_ANDROID.id)
+
+        fun configureAndStartAndroid(sessionId: ByteArray, preamble: Byte, channel: Byte, stsIV : ByteArray, address: ByteArray) = byteArrayOf(CONFIGURE_AND_START_ANDROID.id)
+            .plus(14) // length
+            .plus(sessionId) // session id, 4byte
+            .plus(preamble) // preamble, 1byte
+            .plus(channel) // channel, 1byte
+            .plus(stsIV) // , 6byte
+            .plus(address) //, 2byte
+
+        fun stopAndroid() = byteArrayOf(STOP_ANDROID.id)
     }
 }
 

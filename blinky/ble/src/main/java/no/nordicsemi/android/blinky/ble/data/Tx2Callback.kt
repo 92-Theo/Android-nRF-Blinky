@@ -14,7 +14,7 @@ abstract class Tx2Callback: DataReceivedCallback {
 
     private fun received(device: BluetoothDevice, data: Data){
         Log.d("Tx2Callback", "received:data=${data.size()}")
-        if (data.size() > 2) {
+        if (data.size() > 0) {
             val tx = data.value
             if (tx != null)
                 onTxChanged(device, tx)

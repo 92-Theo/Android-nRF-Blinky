@@ -69,5 +69,4 @@ interface Blinky {
     suspend fun initNi()
     suspend fun configureAndStartNi()
     suspend fun stopNi()
-
 }

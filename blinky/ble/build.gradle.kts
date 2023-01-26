@@ -20,4 +20,5 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
 
     implementation("org.bouncycastle:bcprov-jdk15on:1.70")
+    implementation("androidx.core.uwb:uwb:1.0.0-alpha04")
 }

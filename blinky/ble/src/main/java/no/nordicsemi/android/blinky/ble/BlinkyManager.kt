@@ -4,15 +4,13 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.content.Context
+import android.content.pm.PackageManager
 import android.util.Log
-import androidx.annotation.Nullable
+import androidx.core.uwb.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import no.nordicsemi.android.ble.BleManager
 import no.nordicsemi.android.ble.WriteRequest
-import no.nordicsemi.android.ble.callback.DataReceivedCallback
-import no.nordicsemi.android.ble.callback.DataSentCallback
-import no.nordicsemi.android.ble.data.Data
 import no.nordicsemi.android.ble.ktx.asValidResponseFlow
 import no.nordicsemi.android.ble.ktx.getCharacteristic
 import no.nordicsemi.android.ble.ktx.state.ConnectionState
@@ -21,6 +19,8 @@ import no.nordicsemi.android.ble.ktx.suspend
 import no.nordicsemi.android.ble.utils.ParserUtils
 import no.nordicsemi.android.blinky.ble.data.*
 import no.nordicsemi.android.blinky.ble.utils.AesCcmUtil
+import no.nordicsemi.android.blinky.ble.utils.ByteUtil
+import no.nordicsemi.android.blinky.ble.utils.IntUtil
 import no.nordicsemi.android.blinky.ble.utils.StringUtil
 import no.nordicsemi.android.blinky.spec.Blinky
 import no.nordicsemi.android.blinky.spec.BlinkySpec
@@ -39,6 +39,7 @@ private class BlinkyManagerImpl(
     private val device: BluetoothDevice,
 ): BleManager(context), Blinky {
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val uwbManager = UwbManager.createInstance(context)
 
     private var ledCharacteristic: BluetoothGattCharacteristic? = null
     private var buttonCharacteristic: BluetoothGattCharacteristic? = null
@@ -46,6 +47,13 @@ private class BlinkyManagerImpl(
     private var txCharacteristic: BluetoothGattCharacteristic? = null
     private var rxCharacteristic: BluetoothGattCharacteristic? = null
     private var macCharacteristic: BluetoothGattCharacteristic? = null
+
+    private var niPreambleIndex: Int = 0
+    private var niChannel: Int = 0
+    private var niMacAddress: String = ""
+    private var niStsIv: String = ""
+    private var niVendorId: String =""
+    private var niSessionId: Int = 0
 
     private val _ledState = MutableStateFlow(false)
     override val ledState = _ledState.asStateFlow()
@@ -73,6 +81,8 @@ private class BlinkyManagerImpl(
 
     private val _dist  = MutableStateFlow("unknown")
     override val dist = _dist.asStateFlow()
+
+    lateinit var uwbResult : StateFlow<RangingResult>
 
     private var timerTask: Timer? = null
 
@@ -146,20 +156,126 @@ private class BlinkyManagerImpl(
 
     override suspend fun initNi(){
         write(
-            NiMsgId.init()
+            NiMsgId.initAndroid()
         ).suspend()
     }
 
     override suspend fun configureAndStartNi(){
+        if (niMacAddress.isNullOrEmpty()){
+            log(Log.INFO, "configureAndStartNi:niMacAddress is null")
+            return;
+        }
+        if (niPreambleIndex == 0){
+            log(Log.INFO, "configureAndStartNi:niPreambleIndex is null")
+            return;
+        }
+        if (niChannel == 0){
+            log(Log.INFO, "configureAndStartNi:niChannel is null")
+            return;
+        }
+        val packageManager : PackageManager = this.context.packageManager
+        val deviceSupportsUwb = packageManager.hasSystemFeature("android.hardware.uwb")
+        if (!deviceSupportsUwb){
+            log(Log.INFO, "configureAndStartNi:uwb not support")
+            return;
+        }
+
+        /*
+        sessionId: ByteArray, preamble: Byte, channel: Byte, stsIV : ByteArray, address: ByteArray
+        * */
+        niSessionId = Random.nextInt()
+        val stsIv = byteArrayOf(0x1.toByte(), 0x2.toByte(), 0x3.toByte(), 0x4.toByte(), 0x5.toByte(), 0x6.toByte())// Random.nextBytes(6)
+        niStsIv = StringUtil.toHexString(stsIv)
+
+        log(Log.INFO, "configureAndStartNi:niSessionId=${niSessionId}")
+        val clientSession = uwbManager.controllerSessionScope()
+        val myAddress = clientSession.localAddress
+
+        log(Log.INFO, "configureAndStartNi:myAddress=${myAddress},v2=${ParserUtils.parse(myAddress.address)}")
+        log(Log.INFO, "configureAndStartNi:isDistanceSupported=${clientSession.rangingCapabilities.isDistanceSupported},isAzimuthalAngleSupported=${clientSession.rangingCapabilities.isAzimuthalAngleSupported},isElevationAngleSupported=${clientSession.rangingCapabilities.isElevationAngleSupported}")
+
         write(
-            NiMsgId.configureAndStart()
+            NiMsgId.configureAndStartAndroid(
+                sessionId = IntUtil.toByteArray(niSessionId), // ACK
+                preamble = niPreambleIndex.toByte(), // ACK
+                channel = niChannel.toByte(), // ACK
+                stsIV = stsIv,
+                address = myAddress.address// ACK
+            )
         ).suspend()
     }
 
     override suspend fun stopNi(){
         write(
-            NiMsgId.stop()
+            NiMsgId.stopAndroid()
         ).suspend()
+    }
+
+    suspend fun startRanging() {
+        // get MAC Address
+        //
+        // get Vendor_ID + STATIC_STS_IV,
+        //
+        if (niMacAddress.isNullOrEmpty()){
+            log(Log.INFO, "startRanging:niMacAddress is null")
+            return;
+        }
+        if (niPreambleIndex == 0){
+            log(Log.INFO, "startRanging:niPreambleIndex is null")
+            return;
+        }
+        if (niChannel == 0){
+            log(Log.INFO, "startRanging:niChannel is null")
+            return;
+        }
+        val macAddress = StringUtil.toByteArray(niMacAddress)
+        if (macAddress.isEmpty()){
+            log(Log.INFO, "startRanging:niMacAddress is null")
+            return;
+        }
+
+
+
+        val  partnerUwbAddress = UwbAddress(macAddress) //Uwb MAC address
+        val  partnerUwbChannel = UwbComplexChannel(
+            channel = niChannel,
+            preambleIndex = niPreambleIndex,
+        )
+//        The session key info to use for the ranging.
+//        If the profile uses STATIC STS, this byte array is 8-byte long with first two bytes as Vendor_ID and next six bytes as STATIC_STS_IV.
+//        The same session keys should be used at both ends (Controller and controlee).
+        val parnterUwbKeyInfo = byteArrayOf(0x7, 0x8) // byteArrayOf(0x4c, 0x00)
+            .plus(StringUtil.toByteArray(niStsIv))
+
+        log(Log.INFO, "startRanging:niMacAddress=${niMacAddress},niChannel=${niChannel},niPreambleIndex=${niPreambleIndex},parnterUwbKeyInfo=${ParserUtils.parse(parnterUwbKeyInfo)}")
+
+        val partnerParameters = RangingParameters(
+            uwbConfigType = RangingParameters.UWB_CONFIG_ID_1,
+            sessionId = niSessionId,
+            sessionKeyInfo =  parnterUwbKeyInfo,
+            complexChannel = partnerUwbChannel,
+            peerDevices = listOf(UwbDevice(partnerUwbAddress)),
+            updateRateType = RangingParameters.RANGING_UPDATE_RATE_FREQUENT,
+        )
+
+        val clientSession = uwbManager.controllerSessionScope()
+        val myAddress = clientSession.localAddress
+        log(Log.INFO, "startRanging:myAddress=${ParserUtils.parse(myAddress.address)}")
+        val sessionFlow = clientSession.prepareSession(partnerParameters)
+        //scope.launch {
+        CoroutineScope(Dispatchers.Main.immediate).launch {
+            log(Log.INFO, "startRanging:in scope")
+            sessionFlow.collect {
+                when(it) {
+                    is RangingResult.RangingResultPosition -> {
+                        log(Log.INFO, "startRanging:Position,address=${ParserUtils.parse(it.device.address.address)},position=${it.position}")
+                    }
+                    is RangingResult.RangingResultPeerDisconnected -> {
+                        log(Log.INFO, "startRanging:PeerDisconnected,address=${ParserUtils.parse(it.device.address.address)}")
+                    }
+                }
+            }
+        }
     }
 
     override fun log(priority: Int, message: String) {
@@ -223,9 +339,7 @@ private class BlinkyManagerImpl(
     }
 
     override fun isRequiredServiceSupported(gatt: BluetoothGatt): Boolean {
-
-
-
+        // Blinky.DeviceType.BLINKY
         // Get the LBS Service from the gatt object.
         gatt.getService(BlinkySpec.BLINKY_SERVICE_UUID)?.apply {
             // Get the LED characteristic.
@@ -248,6 +362,7 @@ private class BlinkyManagerImpl(
             return ledCharacteristic != null && buttonCharacteristic != null
         }
 
+        // Blinky.DeviceType.KEYPLUS
         gatt.getService(BlinkySpec.KEYPLUS_SERVICE_UUID)?.apply {
             macCharacteristic = getCharacteristic(
                 BlinkySpec.KEYPLUS_MAC_CHARACTERISTIC_UUID,
@@ -268,6 +383,7 @@ private class BlinkyManagerImpl(
             return macCharacteristic != null && txCharacteristic != null && rxCharacteristic != null
         }
 
+        // Blinky.DeviceType.NI
         gatt.getService(BlinkySpec.UWB_SERVICE_UUID)?.apply {
             txCharacteristic = getCharacteristic(
                 BlinkySpec.UWB_TX_CHARACTERISTIC_UUID,
@@ -564,13 +680,92 @@ private class BlinkyManagerImpl(
 
         when(val id = NiMsgId.of(data[0])){
             NiMsgId.ACCESSORY_CONFIGURATION_DATA -> {
+                if (data.size != 36){
+                    Log.d("BlinkyManager", "parseNi:id=${id} size not 36")
+                    return;
+                }
+                log(Log.INFO, "NiMsgId.ACCESSORY_CONFIGURATION_DATA")
 
+                val majorVer = data.copyOfRange(1, 3)
+                val minorVer = data.copyOfRange(3, 5)
+                val preferredUpdateRate = data[5]
+                val rfu = data.copyOfRange(6, 16)
+                val confDataLen = data[16]
+                val confFixedData1 = data.copyOfRange(17, 26)
+                val confPreamble = data.copyOfRange(26, 28)
+                val confFixedData2 = data.copyOfRange(28, 31)
+                val confChannel = data.copyOfRange(31, 33)
+                val confFixedData3 = data.copyOfRange(33, 34)
+                val confDestAddr = data.copyOfRange(34, 36)
+
+                niPreambleIndex = IntUtil.toInt(confPreamble)
+                niChannel = IntUtil.toInt(confChannel)
+                niMacAddress = StringUtil.toHexString(confDestAddr)
+
+                val debugMessage = "parseNi:id=${id}," +
+                        "majorVer=${ParserUtils.parse(majorVer)}," +
+                        "minorVer=${ParserUtils.parse(minorVer)}," +
+                        "preferredUpdateRate=${preferredUpdateRate}," +
+                        "rfu=${ParserUtils.parse(rfu)}," +
+                        "confDataLen=${confDataLen}," +
+                        "confFixedData1=${ParserUtils.parse(confFixedData1)}," +
+                        "confPreamble=${ParserUtils.parse(confPreamble)}," +
+                        "confFixedData2=${ParserUtils.parse(confFixedData2)}," +
+                        "confChannel=${ParserUtils.parse(confChannel)}," +
+                        "confFixedData3=${ParserUtils.parse(confFixedData3)}," +
+                        "confDestAddr=${ParserUtils.parse(confDestAddr)}"
+                log(Log.INFO, debugMessage)
+//                Log.d("BlinkyManager", "parseNi:id=${id}," +
+//                        "majorVer=${ParserUtils.parse(majorVer)}," +
+//                        "minorVer=${ParserUtils.parse(minorVer)}," +
+//                        "preferredUpdateRate=${preferredUpdateRate}," +
+//                        "rfu=${ParserUtils.parse(rfu)}," +
+//                        "confDataLen=${confDataLen}," +
+//                        "confFixedData1=${ParserUtils.parse(confFixedData1)}," +
+//                        "confPreamble=${ParserUtils.parse(confPreamble)}," +
+//                        "confFixedData2=${ParserUtils.parse(confFixedData2)}," +
+//                        "confChannel=${ParserUtils.parse(confChannel)}," +
+//                        "confFixedData3=${ParserUtils.parse(confFixedData3)}," +
+//                        "confDestAddr=${ParserUtils.parse(confDestAddr)},")
             }
             NiMsgId.ACCESSORY_UWB_DID_START -> {
+                log(Log.INFO, "NiMsgId.ACCESSORY_UWB_DID_START")
+                CoroutineScope(Dispatchers.Main.immediate).launch {
+                    startRanging()
+                }
 
             }
             NiMsgId.STOP -> {
+                log(Log.INFO, "NiMsgId.STOP")
+            }
+            NiMsgId.ANDROID_CONFIGURATION_DATA -> {
+                if (data.size != 4){
+                    Log.d("BlinkyManager", "parseNi:id=${id} size not 36")
+                    return;
+                }
+                log(Log.INFO, "NiMsgId.ANDROID_CONFIGURATION_DATA")
 
+                val confDataLen = data[1]
+                val confDestAddr = data.copyOfRange(2, 4)
+
+                niPreambleIndex = 11
+                niChannel = 9
+                niMacAddress = StringUtil.toHexString(confDestAddr)
+
+                val debugMessage = "parseNi:id=${id}," +
+                        "confDataLen=${confDataLen}," +
+                        "confDestAddr=${ParserUtils.parse(confDestAddr)}"
+                log(Log.INFO, debugMessage)
+            }
+            NiMsgId.ANDROID_UWB_DID_START -> {
+                log(Log.INFO, "NiMsgId.ANDROID_UWB_DID_START")
+                CoroutineScope(Dispatchers.Main.immediate).launch {
+                    startRanging()
+                }
+
+            }
+            NiMsgId.STOP_ANDROID -> {
+                log(Log.INFO, "NiMsgId.STOP_ANDROID")
             }
             else ->{
                 Log.d("BlinkyManager", "parseNi:id=${id},not support")
