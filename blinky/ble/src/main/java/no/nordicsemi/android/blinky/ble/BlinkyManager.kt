@@ -1,11 +1,14 @@
 package no.nordicsemi.android.blinky.ble
 
+import android.Manifest
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.core.uwb.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -39,7 +42,6 @@ private class BlinkyManagerImpl(
     private val device: BluetoothDevice,
 ): BleManager(context), Blinky {
     private val scope = CoroutineScope(Dispatchers.IO)
-    private val uwbManager = UwbManager.createInstance(context)
 
     private var ledCharacteristic: BluetoothGattCharacteristic? = null
     private var buttonCharacteristic: BluetoothGattCharacteristic? = null
@@ -52,7 +54,6 @@ private class BlinkyManagerImpl(
     private var niChannel: Int = 0
     private var niMacAddress: String = ""
     private var niStsIv: String = ""
-    private var niVendorId: String =""
     private var niSessionId: Int = 0
 
     private val _ledState = MutableStateFlow(false)
@@ -85,6 +86,11 @@ private class BlinkyManagerImpl(
     lateinit var uwbResult : StateFlow<RangingResult>
 
     private var timerTask: Timer? = null
+    private var uwbJob: Job? = null
+
+    private val defaultExceptionHandler = CoroutineExceptionHandler { context, throwable ->
+        log(Log.INFO, "MMM exceptionHandler caught $throwable")
+    }
 
     override val state = stateAsFlow()
         .map {
@@ -99,6 +105,7 @@ private class BlinkyManagerImpl(
                     _version.tryEmit("unknown")
                     _mac.tryEmit("unknown")
                     timerTask?.cancel()
+                    uwbJob?.cancel()
                     Blinky.State.NOT_AVAILABLE
                 }
             }
@@ -115,6 +122,9 @@ private class BlinkyManagerImpl(
         // Cancel all coroutines.
         scope.cancel()
         timerTask?.cancel()
+        timerTask = null
+        uwbJob?.cancel()
+        uwbJob = null
 
         val wasConnected = isReady
         // If the device wasn't connected, it means that ConnectRequest was still pending.
@@ -156,7 +166,7 @@ private class BlinkyManagerImpl(
 
     override suspend fun initNi(){
         write(
-            NiMsgId.initAndroid()
+            NiMsgId.init()
         ).suspend()
     }
 
@@ -179,27 +189,42 @@ private class BlinkyManagerImpl(
             log(Log.INFO, "configureAndStartNi:uwb not support")
             return;
         }
+        if (!checkPermission()){
+            log(Log.INFO, "configureAndStartNi:uwb permission not has..")
+
+            // requestPe
+            return;
+        }
 
         /*
         sessionId: ByteArray, preamble: Byte, channel: Byte, stsIV : ByteArray, address: ByteArray
         * */
         niSessionId = Random.nextInt()
-        val stsIv = byteArrayOf(0x1.toByte(), 0x2.toByte(), 0x3.toByte(), 0x4.toByte(), 0x5.toByte(), 0x6.toByte())// Random.nextBytes(6)
+        val stsIv = byteArrayOf(0x1.toByte(), 0x2.toByte(), 0x3.toByte(), 0x4.toByte(), 0x5.toByte(), 0x6.toByte()) // Random.nextBytes(6)
         niStsIv = StringUtil.toHexString(stsIv)
 
-        log(Log.INFO, "configureAndStartNi:niSessionId=${niSessionId}")
+        val uwbManager = UwbManager.createInstance(context)
         val clientSession = uwbManager.controllerSessionScope()
         val myAddress = clientSession.localAddress
+        niChannel = clientSession.uwbComplexChannel.channel
+        niPreambleIndex = clientSession.uwbComplexChannel.preambleIndex
 
-        log(Log.INFO, "configureAndStartNi:myAddress=${myAddress},v2=${ParserUtils.parse(myAddress.address)}")
+        log(Log.INFO, "configureAndStartNi:Session_Id=${niSessionId}")
+        log(Log.INFO, "configureAndStartNi:Sts_Iv=${niStsIv}")
+        log(Log.INFO, "configureAndStartNi:Channel=${niChannel}")
+        log(Log.INFO, "configureAndStartNi:preambleIndex=${niPreambleIndex}")
+        log(Log.INFO, "configureAndStartNi:src_addr=${ParserUtils.parse(myAddress.address)}")
+        log(Log.INFO, "configureAndStartNi:dst_addr=${niMacAddress}")
         log(Log.INFO, "configureAndStartNi:isDistanceSupported=${clientSession.rangingCapabilities.isDistanceSupported},isAzimuthalAngleSupported=${clientSession.rangingCapabilities.isAzimuthalAngleSupported},isElevationAngleSupported=${clientSession.rangingCapabilities.isElevationAngleSupported}")
 
+        startRanging(clientSession, clientSession.uwbComplexChannel)
+
         write(
-            NiMsgId.configureAndStartAndroid(
+            NiMsgId.configureAndStart(
                 sessionId = IntUtil.toByteArray(niSessionId), // ACK
                 preamble = niPreambleIndex.toByte(), // ACK
                 channel = niChannel.toByte(), // ACK
-                stsIV = stsIv,
+                stsIV = ByteUtil.toInvertedByteArray(stsIv),
                 address = myAddress.address// ACK
             )
         ).suspend()
@@ -207,11 +232,11 @@ private class BlinkyManagerImpl(
 
     override suspend fun stopNi(){
         write(
-            NiMsgId.stopAndroid()
+            NiMsgId.stop()
         ).suspend()
     }
 
-    suspend fun startRanging() {
+    suspend fun startRanging(clientSession: UwbClientSessionScope, channel: UwbComplexChannel) {
         // get MAC Address
         //
         // get Vendor_ID + STATIC_STS_IV,
@@ -234,8 +259,6 @@ private class BlinkyManagerImpl(
             return;
         }
 
-
-
         val  partnerUwbAddress = UwbAddress(macAddress) //Uwb MAC address
         val  partnerUwbChannel = UwbComplexChannel(
             channel = niChannel,
@@ -244,38 +267,43 @@ private class BlinkyManagerImpl(
 //        The session key info to use for the ranging.
 //        If the profile uses STATIC STS, this byte array is 8-byte long with first two bytes as Vendor_ID and next six bytes as STATIC_STS_IV.
 //        The same session keys should be used at both ends (Controller and controlee).
-        val parnterUwbKeyInfo = byteArrayOf(0x7, 0x8) // byteArrayOf(0x4c, 0x00)
+        val parnterUwbKeyInfo = byteArrayOf(7, 8)// byteArrayOf(0x4c, 0x00)
             .plus(StringUtil.toByteArray(niStsIv))
 
-        log(Log.INFO, "startRanging:niMacAddress=${niMacAddress},niChannel=${niChannel},niPreambleIndex=${niPreambleIndex},parnterUwbKeyInfo=${ParserUtils.parse(parnterUwbKeyInfo)}")
+        log(Log.INFO, "startRanging:parnterUwbKeyInfo=${ParserUtils.parse(parnterUwbKeyInfo)}")
 
         val partnerParameters = RangingParameters(
             uwbConfigType = RangingParameters.UWB_CONFIG_ID_1,
             sessionId = niSessionId,
             sessionKeyInfo =  parnterUwbKeyInfo,
-            complexChannel = partnerUwbChannel,
+            complexChannel = channel,
             peerDevices = listOf(UwbDevice(partnerUwbAddress)),
-            updateRateType = RangingParameters.RANGING_UPDATE_RATE_FREQUENT,
+            updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC,
         )
 
-        val clientSession = uwbManager.controllerSessionScope()
-        val myAddress = clientSession.localAddress
-        log(Log.INFO, "startRanging:myAddress=${ParserUtils.parse(myAddress.address)}")
+        log(Log.INFO, "startRanging:prepareSession")
         val sessionFlow = clientSession.prepareSession(partnerParameters)
-        //scope.launch {
-        CoroutineScope(Dispatchers.Main.immediate).launch {
-            log(Log.INFO, "startRanging:in scope")
-            sessionFlow.collect {
-                when(it) {
-                    is RangingResult.RangingResultPosition -> {
-                        log(Log.INFO, "startRanging:Position,address=${ParserUtils.parse(it.device.address.address)},position=${it.position}")
-                    }
-                    is RangingResult.RangingResultPeerDisconnected -> {
-                        log(Log.INFO, "startRanging:PeerDisconnected,address=${ParserUtils.parse(it.device.address.address)}")
+
+        uwbJob = scope.launch {
+            log(Log.INFO, "startRanging:in scope start")
+            sessionFlow
+                .onStart {
+                    log(Log.INFO, "startRanging:flow on start")
+                }
+                .catch { e -> log(Log.INFO, "startRanging:Position,e=${e.message}") }
+                .collect {
+                    when(it) {
+                        is RangingResult.RangingResultPosition -> {
+                            log(Log.INFO, "startRanging:Position,address=${ParserUtils.parse(it.device.address.address)},position=${it.position}")
+                        }
+                        is RangingResult.RangingResultPeerDisconnected -> {
+                            log(Log.INFO, "startRanging:PeerDisconnected,address=${ParserUtils.parse(it.device.address.address)}")
+                        }
                     }
                 }
-            }
+            log(Log.INFO, "startRanging:in scope end")
         }
+        // uwbJob?.start()
     }
 
     override fun log(priority: Int, message: String) {
@@ -698,7 +726,7 @@ private class BlinkyManagerImpl(
                 val confFixedData3 = data.copyOfRange(33, 34)
                 val confDestAddr = data.copyOfRange(34, 36)
 
-                niPreambleIndex = IntUtil.toInt(confPreamble)
+                niPreambleIndex = 12// IntUtil.toInt(confPreamble)
                 niChannel = IntUtil.toInt(confChannel)
                 niMacAddress = StringUtil.toHexString(confDestAddr)
 
@@ -731,7 +759,7 @@ private class BlinkyManagerImpl(
             NiMsgId.ACCESSORY_UWB_DID_START -> {
                 log(Log.INFO, "NiMsgId.ACCESSORY_UWB_DID_START")
                 CoroutineScope(Dispatchers.Main.immediate).launch {
-                    startRanging()
+                    // startRanging()
                 }
 
             }
@@ -760,7 +788,7 @@ private class BlinkyManagerImpl(
             NiMsgId.ANDROID_UWB_DID_START -> {
                 log(Log.INFO, "NiMsgId.ANDROID_UWB_DID_START")
                 CoroutineScope(Dispatchers.Main.immediate).launch {
-                    startRanging()
+//                    startRanging()
                 }
 
             }
@@ -775,5 +803,14 @@ private class BlinkyManagerImpl(
 
     private fun parseUwb(data: ByteArray){
         Log.d("BlinkyManager", "parseUwb:data=${ParserUtils.parse(data)},invalid")
+    }
+
+    private fun checkPermission() : Boolean {
+        var permission = mutableMapOf<String, String>()
+        permission["uwbRanging"] = Manifest.permission.UWB_RANGING
+
+        var denied = permission.count { ContextCompat.checkSelfPermission(context, it.value)  == PackageManager.PERMISSION_DENIED }
+
+        return denied == 0
     }
 }
