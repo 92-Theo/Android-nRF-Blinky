@@ -124,8 +124,8 @@ enum class NiMsgId(val id: Byte) {
             .plus(preamble) // preamble
             .plus(channel) // channel
             .plus(byteArrayOf(0x06, 0x00)) //num slots
-            .plus(byteArrayOf(0x10, 0x0e)) //slot duration
-            .plus(byteArrayOf(0xB4.toByte(), 0x00)) //block duration
+            .plus(byteArrayOf(0x60, 0x09))// .plus(byteArrayOf(0x10, 0x0e)) //slot duration
+            .plus(byteArrayOf(0xF0.toByte(), 0x00))// .plus(byteArrayOf(0xB4.toByte(), 0x00)) //block duration
             .plus(0x03) // fixed data
             .plus(stsIV)
             .plus(address)
